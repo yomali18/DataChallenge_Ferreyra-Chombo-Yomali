@@ -1,0 +1,474 @@
+---
+title: 'Data Challenge'
+output: html_document
+date: "2024-08-03"
+runtime: shiny
+---
+
+# Evaluación del efecto de la temperatura mínima sobre la incidencia de dengue en los distritos de Loreto duranto 2017-2022 {style="color:darkblue"}
+
+## Librerías/paquetes {style="color:purple"}
+
+```{r}
+#install.packages(c("httr", "ggplot2", "stringr", "readr", "tidyr", "dplyr", "lubridate", "zoo", "dlnm", "splines", "jsonlite", "leaflet", "leaflet.extras", "leaflet.minicharts", "leaflet.providers", "htmlwidgets", "leaftime", "sf", "geojsonio", "mapview", "leafpop", "rnaturalearth", "rnaturalearthdata", "geodata", "manipulateWidget", "shiny", "ggpubr", "Hmisc", "mgcv", "rnaturalearth", "rnaturalearthhires", "spdep", "lme4", "MuMIn"))
+```
+
+```{r include=FALSE}
+library(httr)
+library(ggplot2)
+library(stringr)
+library(readr)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+library(zoo)
+library(dlnm)
+library(splines)
+library(jsonlite)
+library(leaflet)
+library(leaflet.extras)
+library(leaflet.minicharts)
+library(leaflet.providers)
+library(htmlwidgets)
+library(leaftime)
+library(sf)
+library(geojsonio)
+library(mapview)
+library(leafpop)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(geodata)
+library(manipulateWidget)
+library(shiny)
+library(ggpubr)
+library(Hmisc)
+library(mgcv)
+library(rnaturalearth)
+library(rnaturalearthhires)
+library(spdep)
+library(lme4)
+library(MuMIn)
+```
+
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+## Ejercicio 1: Recolección de datos {style="color:purple"}
+
+#### *Importar base de datos de dengue*
+
+```{r eval=FALSE, include=FALSE}
+url <- "https://www.datosabiertos.gob.pe/sites/default/files/datos_abiertos_vigilancia_dengue.csv"
+
+GET(url, write_disk("data/datos_abiertos_vigilancia_dengue.csv", overwrite = TRUE), timeout(600))
+```
+
+#### *Carga de bases de datos*
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#Bases de datos 
+distritos <- read_csv("data/districts_2017census.csv")
+poblacion_distritos <- read_csv("data/population_2017-2022.csv")
+temperatura_minima<- read_csv("data/mintemp_20170101-20221231.csv")
+casos_dengue<-read_csv("data/datos_abiertos_vigilancia_dengue.csv")
+```
+
+#### *Reporte de variables*
+
+Se puede observar que a pesar que la Plataforma Nacional de Datos Abiertos indica que el dataset contempla la variable "*tipo_dx*": C= Confirmado, P = Probable, S = Sospechoso. Esta no se evidencia en la base, por lo tanto se tomará en cuenta la variable "diagnostic" para definir tales tipos de diagnóstico.
+
+```{r}
+cat("Dataframe 'casos_dengue':\n")
+glimpse(casos_dengue)
+```
+
+#### *Notificaciones de casos de dengue*
+
+Se considera que:
+
+A97.0 = Dengue sin señales de alarma
+
+A97.1 = Dengue con señales de alarma
+
+A97.2 = Dengue grave
+
+```{r}
+unique(casos_dengue$diagnostic)
+```
+
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+## **Ejercicio 2: Procesamiento de datos** {style="color:purple"}
+
+#### *Limpieza de dataframe "casos_dengue" para las notificaciones*
+
+```{r}
+casos_dengue <- subset(casos_dengue, diagnostic %in% c("A97.0", "A97.1", "A97.2"))
+```
+
+#### *Transformación de la base de los datos de temperatura*
+
+Se tuvo que reorganizar la estructura de la base de datos que contiene los datos de temperatura mínima, transformando las columnas que representaban temperaturas diarias en una columna de fechas. Luego, se convirtió el nombre de cada columna en una fecha. Además, se utilizó la función `epiweek` para determinar la semana epidemiológica (SE). Por último, los datos se agruparon para calcular la temperatura promedio semanal.
+
+```{r}
+fechas<- temperatura_minima %>%
+  pivot_longer(cols = starts_with("mintemp_"), names_to = "fecha", values_to = "temperatura") %>%
+  mutate(fecha = str_remove(fecha, "mintemp_")) %>%
+  mutate(fecha = as.Date(fecha, format = "%Y%m%d")) %>%
+  mutate( ano = year(fecha),
+          mes = month(fecha),
+          semana = epiweek(fecha))
+
+temperatura_minima_semanal <- fechas %>%
+  group_by(ubigeo, ano, mes, semana) %>%
+  summarise(temperatura_promedio = mean(temperatura, na.rm = TRUE), .groups = 'drop')
+```
+
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+## **Ejercicio 3: Integración de datos** {style="color:purple"}
+
+#### *Base de datos integrada*
+
+Se obtuvo un conjunto de datos conformado por variables como año, SE, departamento, distrito (UBIGEO), número de casos notificados de dengue, población total por cada distrito y temperatura mínima promedio e incidencia.
+
+```{r}
+casos_year_semana <- casos_dengue %>%
+  group_by(ubigeo, ano, semana) %>%
+  summarise(n_casos = n(), .groups = 'drop') %>%
+  left_join(temperatura_minima_semanal, by = c("ubigeo", "ano", "semana")) %>%
+  mutate(ano_mes = format( make_date(ano, mes), "%b-%Y"))%>%
+  left_join(poblacion_distritos, by = c("ubigeo", "ano" = "year")) %>%
+  mutate(incidencia = (n_casos / population) * 100000) %>%
+  left_join(distritos, by = "ubigeo")
+```
+
+#### *Filtrado de base datos: Loreto, 2017-2022*
+
+```{r}
+loreto_casos_17_22 <- casos_year_semana %>% filter(departmento=="LORETO" & ano >= 2017) 
+```
+
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+## **Ejercicio 4: Modelamiento estadístico** {style="color:purple"}
+
+#### *Análisis descriptivo*
+
+(1) **Datos epidemiológicos**
+
+    En esta sección se reporta un gráfico de barras para visualizar la proporción de casos de dengue por tipo de disgnóstico.
+
+```{r}
+all_casos_dengue_loreto<-casos_dengue %>% filter(departamento=="LORETO" & ano >= 2017) 
+
+ggplot(all_casos_dengue_loreto, aes(x = ano, fill = diagnostic)) + 
+  geom_bar() +
+  guides(fill = guide_legend(title = "Tipo dx")) +
+  scale_fill_discrete(labels = c("Sin señales de alarma", "Con señales de alarma", "Grave")) +
+  theme_minimal(base_size = 15) +
+  theme(
+    panel.border = element_rect(colour = "black", fill = NA, size = 1),
+    axis.text.x = element_text(angle = 45, hjust = 1) 
+  ) +
+  labs(x = "Año", y = "Número de casos reportados") +
+  scale_x_continuous(breaks = seq(min(all_casos_dengue_loreto$ano), max(all_casos_dengue_loreto$ano), by = 1))
+```
+
+2.  **Análisis temporal**
+
+    En este gráfico interactivo, se puede entender el comportamiento de la incidencia de dengue por 100.000 habitantes por cada distrito, año y SE (objetivo parcial del Ejercicio 2)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ui <- fluidPage(
+
+  fluidRow(
+    column(4, 
+      selectInput("selected_district", "Distrito:", 
+                  choices = c("TODOS", unique(loreto_casos_17_22$distrito)))
+    ),
+    column(4, 
+      sliderInput("selected_week", "Semana Epidemiológica (SE):", 
+                  min = min(loreto_casos_17_22$semana), 
+                  max = max(loreto_casos_17_22$semana), 
+                  value = c(min(loreto_casos_17_22$semana), max(loreto_casos_17_22$semana)),
+                  sep = "")
+    )
+  ),
+  
+  plotOutput("distPlot")
+)
+
+# Definir server
+server <- function(input, output) {
+  
+  filtered_data <- reactive({
+    data <- loreto_casos_17_22
+    
+    if (input$selected_district != "TODOS") {
+      data <- data %>% filter(distrito == input$selected_district)
+    }
+    
+    data <- data %>% filter(semana >= input$selected_week[1] & semana <= input$selected_week[2])
+    
+    data %>% group_by(ano) %>% summarise(n = sum(incidencia))
+  })
+  
+  output$distPlot <- renderPlot({
+    data <- filtered_data()
+    
+    ggplot(data, aes(x = ano, y = n)) +
+      geom_line(color = "red", linewidth = 1.5) +
+      geom_point(color = "red", shape = 21) +
+      labs(x = "Año", y = "Incidencia por 100.000 habitantes") +
+      theme_bw(base_size = 15)
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+3.  **Análisis espacial**
+
+    En esta sección se importaron las coordenadas para cada distrito, así como también información de la superficie para poder representar los cambios de la incidencia y temperatura en relación a cada distrito, año y SE. Posteriormente, se realizó un mapa interactivo para visualizar tal información (se demora un poco en cargar)
+
+```{r echo=FALSE}
+get_coordinates <- function(ubigeo, distrito, provincia, departamento) {
+  query <- paste(distrito, provincia, departamento, "Peru", sep = ", ")
+  url <- paste0("https://nominatim.openstreetmap.org/search?q=", URLencode(query), "&format=json&limit=1")
+  res <- GET(url)
+  data <- fromJSON(content(res, "text"), flatten = TRUE)
+  if (length(data) == 0) {
+    return(data.frame(latitud = NA, longitud = NA))
+  } else {
+    return(data.frame(latitud = as.numeric(data$lat), longitud = as.numeric(data$lon)))
+  }
+}
+
+distritos_loreto <- distritos %>% filter(departmento == "LORETO") %>%
+  rowwise() %>%
+  mutate(coords = list(get_coordinates(ubigeo, distrito, provincia, departmento))) %>%
+  unnest(cols = c(coords)) %>% select(1, 6, 7)
+
+loreto_casos_17_22 <- loreto_casos_17_22 %>% left_join(distritos_loreto, by = c("ubigeo"))
+
+peru_districts <- geodata::gadm("Peru", level = 3, path = tempdir())
+
+distritos_loreto_sf <- st_as_sf(peru_districts) %>% filter(NAME_1 == "Loreto")  %>%
+  mutate(NAME_3 = toupper(NAME_3))
+
+merged_data <- distritos_loreto_sf %>%
+  left_join(loreto_casos_17_22, by = c("NAME_3" = "distrito"))  %>%
+  drop_na(semana)
+
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+pal <- colorNumeric(palette = "plasma", domain = merged_data$temperatura_promedio)
+
+ui1 <- fluidPage(
+        fluidRow(
+        column(4,
+        selectInput("selected_year", "Año:",
+        choices = sort(unique(merged_data$ano)), selected = 2021)
+        ),
+        column(4,
+        sliderInput("selected_week", "Semana:",
+        min = min(merged_data$semana),
+        max = max(merged_data$semana),
+        value = min(merged_data$semana),
+        step = 1,
+        sep = "")
+        )
+        ),
+        leafletOutput("map")
+        )
+# Definir server
+server1 <- function(input, output) {
+          filtered_data <- reactive({
+          merged_data %>%
+          filter(ano == input$selected_year, semana == input$selected_week)
+          })
+output$map <- renderLeaflet({
+        leaflet(data = filtered_data()) %>%
+        addTiles() %>%
+        addPolygons(color = 'black',
+        weight = 1,
+        opacity = 1,
+        fillColor = ~pal(temperatura_promedio),
+        fillOpacity = 0.7,
+        highlightOptions = highlightOptions(color = "red", weight = 3),
+        popup = ~paste(NAME_3, "<br>Tmin (°C):", round(temperatura_promedio, 2),"<br>Incidencia:", round(incidencia,2))) %>%
+        addLegend(pal = pal, values = merged_data$temperatura_promedio, title = "T (°C)")
+        })
+}
+
+shinyApp(ui = ui1, server = server1)
+```
+
+#### Modelos estadísticos
+
+1.  **Análisis exploratorio**
+
+    Algunos estudios que evaluan la relación entre factores climáticos y número de casos de alguna enfermedad, se basan en un enfoque de correlación de Pearson o Spearman para determinar algun tipo de asociación. No obstante, este tipo de análisis no suele considerar tendencias temporales en los datos. Por lo tanto, se recomienda principalmente como herramienta exploratoria.
+
+```{r include=FALSE}
+pearson<- ggplot(loreto_casos_17_22, aes(x = temperatura_promedio, y = n_casos)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  stat_cor(method = "pearson", label.x = 10, label.y = 30) +
+  labs(title = "Pearson Correlation",
+       x = "T (°C)",
+       y = "Número de casos de dengue") +
+  theme_minimal()
+
+spearmen <- ggplot(loreto_casos_17_22, aes(x = temperatura_promedio, y = n_casos)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE, color = "red") +
+  stat_cor(method = "spearman", label.x = 10, label.y = 30) +
+  labs(title = "Spearman Correlation",
+       x = "T (°C)",
+       y = "Número de casos de dengue") +
+  theme_minimal()
+
+pearson
+spearmen
+```
+
+2.  **Modelos Lineal**
+
+    Se inició con un modelo lineal considerando únicamente para la temperatura, para luego ajustarlo por la SE y distrito.
+
+```{r warning=FALSE}
+#Univariable
+lm_univ <- gam(n_casos ~ temperatura_promedio, data = loreto_casos_17_22)
+#Multivariable
+lm_multiv <- gam(n_casos ~ temperatura_promedio + semana + distrito, data = loreto_casos_17_22)
+```
+
+##### ***Modelo lineal, casos- temperatura*** {style="color:gray"}
+
+```{r}
+summary(lm_univ)
+```
+
+##### ***Modelo lineal, casos- temperatura + SE + distrito*** {style="color:gray"}
+
+```{r}
+summary(lm_multiv)
+```
+
+3.  **Modelos GAM**
+
+```{r warning=FALSE}
+#Univariable
+gam_univ <- gam(n_casos ~ s(temperatura_promedio), family = poisson, data = loreto_casos_17_22)
+#Multivariable
+gam_multiv <- gam(n_casos ~ s(temperatura_promedio) + semana , family = poisson, data = loreto_casos_17_22)
+
+```
+
+##### ***Modelo GAM, casos- temperatura*** {style="color:gray"}
+
+```{r}
+summary(gam_univ)
+```
+
+##### ***Modelo GAM, casos- temperatura + SE + distrito*** {style="color:gray"}
+
+```{r}
+summary(gam_multiv)
+```
+
+4.  **Modelo GLMM**
+
+```{r warning=FALSE}
+#Por distrito
+glmm_univ <- glmer(n_casos ~ temperatura_promedio + (1|distrito), family = poisson, data = loreto_casos_17_22)
+#Por distrito, temperatura + semana
+glmm_multiv <- glmer(n_casos ~ temperatura_promedio + semana + (1 | distrito), family = poisson, data = loreto_casos_17_22)
+```
+
+##### ***Modelo GLMM, casos- temperatura*** {style="color:gray"}
+
+```{r}
+summary(glmm_univ)
+```
+
+##### ***Modelo GLMM, casos- temperatura + SE + distrito*** {style="color:gray"}
+
+```{r}
+summary(glmm_multiv)
+```
+
+5.  **Métricas de rendimiento**
+
+    A continuación, se presenta una tabla de comparación de métricas de rendimiento. Se considera un mejor modelo bajos valores de AIC, BIC y Desviación. Se verifica que el p-valor para la temperatura por cada modelo sea significativo (p\<0.05).
+
+```{r include=FALSE}
+
+#Extración de p-valores de la temperatura en los modelos
+
+summary_lm_univ <- summary(lm_univ)
+summary_gam_univ <- summary(gam_univ)
+summary_glmm_univ <- summary(glmm_univ)
+summary_lm_multiv <- summary(lm_multiv)
+summary_gam_multiv <- summary(gam_multiv)
+summary_glmm_multiv <- summary(glmm_multiv)
+
+# Función para extraer coeficientes y valores p
+extract_coef_pval <- function(summary_obj, var_name) {
+  coef_info <- summary_obj$coefficients
+  if (is.null(coef_info)) { # Para modelos GAM
+    coef_info <- summary_obj$p.table
+  }
+  coef_val <- coef_info[var_name, "Estimate"]
+  p_val <- coef_info[var_name, "Pr(>|t|)"]
+  return(c(coef_val, p_val))
+}
+
+# Extraer coeficientes y valores p para todos los modelos
+coef_pval_lm_univ <- extract_coef_pval(summary_lm_univ, "temperatura_promedio")
+coef_pval_gam_univ <- summary_gam_univ$s.table["s(temperatura_promedio)", "p-value"]
+coef_pval_glmm_univ <- summary(glmm_univ)$coefficients["temperatura_promedio", c("Estimate", "Pr(>|z|)")]
+
+coef_pval_lm_multiv <- extract_coef_pval(summary_lm_multiv, "temperatura_promedio")
+coef_pval_gam_multiv <- summary_gam_multiv$s.table["s(temperatura_promedio)", "p-value"]
+coef_pval_glmm_multiv <- summary(glmm_multiv)$coefficients["temperatura_promedio", c("Estimate", "Pr(>|z|)")]
+
+# Crear un vector para los valores p
+p_value_temp <- c(coef_pval_lm_univ[2],
+                  coef_pval_gam_univ,
+                  coef_pval_glmm_univ["Pr(>|z|)"],
+                  coef_pval_lm_multiv[2],
+                  coef_pval_gam_multiv,
+                  coef_pval_glmm_multiv["Pr(>|z|)"])
+
+
+
+
+#-------------------------------------------------------------------------------
+
+
+metrics_df <- data.frame(
+  Model = c("lm_univ", "gam_univ", "glmm_univ", "lm_multiv", "gam_multiv", "glmm_multiv"),
+  AIC = c(AIC(lm_univ), AIC(gam_univ), AIC(glmm_univ),
+                AIC(lm_multiv), AIC(gam_multiv), AIC(glmm_multiv)),
+  BIC = c(BIC(lm_univ), BIC(gam_univ), BIC(glmm_univ),
+                BIC(lm_multiv), BIC(gam_multiv), BIC(glmm_multiv)),
+  Desviacion = c(deviance(lm_univ), deviance(gam_univ), deviance(glmm_univ),
+                     deviance(lm_multiv), deviance(gam_multiv), deviance(glmm_multiv)),
+  p_value_temp = p_value_temp
+)
+
+metrics_df
+
+```
+
+Bajo todas esas consideraciones se observa que los modelos GLMM cumplen los cuatro criterios. Sus valores son muy similares, por lo tanto se realizó un análsisi ANOVA con el test Chi-Square. En este se determinó que el **modelo GLMM multivariable** que incluye tanto la temperatura, SE y distrito **proporciona un mejor ajuste** (p=0.0002791) para determinar que la temperura tiene un efecto en los casos de dengue en Loreto durante 2017-2022.
+
+```{r}
+anova(glmm_univ, glmm_multiv, test = "Chisq")
+
+```

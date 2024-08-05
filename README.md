@@ -5,6 +5,4 @@ Para visualizar el mapa interactivo, debe ejecutarse el shiny app de la carpeta 
 
 ![Ejemplo de imagen](mapa.png)
 
-## Descripción
 
-El archivo principal `app.Rmd` contiene dos aplicaciones Shiny:

@@ -225,13 +225,17 @@ server <- function(input, output) {
 }
 
 shinyApp(ui = ui, server = server)
+
+
 ```
 
 3.  **Análisis espacial**
 
-    En esta sección se importaron las coordenadas para cada distrito, así como también información de la superficie para poder representar los cambios de la incidencia y temperatura en relación a cada distrito, año y SE. Posteriormente, se realizó un mapa interactivo para visualizar tal información (se demora un poco en cargar)
+    En esta sección se importaron las coordenadas para cada distrito, así como también información de la superficie para poder representar los cambios de la incidencia y temperatura en relación a cada distrito, año y SE. Posteriormente, se realizó un mapa interactivo para visualizar tal información (`run` al documento `app/app.R`)
 
-```{r echo=FALSE}
+    [![](mapa.png)](https://yomali-aroa-ferreyra-chombo.shinyapps.io/app_mapa/)
+
+```{r eval=FALSE, include=FALSE}
 get_coordinates <- function(ubigeo, distrito, provincia, departamento) {
   query <- paste(distrito, provincia, departamento, "Peru", sep = ", ")
   url <- paste0("https://nominatim.openstreetmap.org/search?q=", URLencode(query), "&format=json&limit=1")

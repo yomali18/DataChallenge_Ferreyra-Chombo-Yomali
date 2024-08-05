@@ -1,0 +1,12 @@
+name: app_mapa
+title: app_mapa
+username: yomali-aroa-ferreyra-chombo
+account: yomali-aroa-ferreyra-chombo
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 12408514
+bundleId: 8946892
+url: https://yomali-aroa-ferreyra-chombo.shinyapps.io/app_mapa/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
